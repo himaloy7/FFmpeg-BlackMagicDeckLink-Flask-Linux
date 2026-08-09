@@ -7,3 +7,6 @@
 # AI Integration Potential: While the AI components like TensorFlow and NumPy are currently commented out, the structure will inhibit the integration of these or similar AI models for tasks like video quality enhancement or adaptive streaming based on network conditions and hardware resources with the aid of related performance analysis tools.
 
 # Scalability: The code is being developed to manage multiple devices and streams for large-scale broadcast systems where AI will optimize bandwidth and resource allocation.
+
+# Please reach out for a User ID and Password. 
+# More Key Implementations: libRTMP, libSRT, libfdk-aac
