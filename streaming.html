@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Panel</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        :root{
+            --green:#4CAF50;
+            --red:#f44336;
+            --blue:#2196F3;
+            --muted:#999;
+            --card-bg:#f9f9f9;
+        }
+
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 18px;
+        }
+
+        .controls-row { display:flex; gap:10px; align-items:center; margin-bottom:12px;}
+        .controls-row button { padding:8px 12px; border-radius:6px; border:1px solid #ccc; cursor:pointer; background:white;}
+        .controls-row .primary { background: var(--blue); color:white; border:none; }
+        .controls-row .logout { background: #eee; }
+        .controls-row .restart { background: #ffb74d; color:#222; border:none; }
+
+        .workspaces-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .workspace-panel {
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 15px;
+            background: var(--card-bg);
+        }
+        .preview-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+        }
+        /* Responsive preview: max 640px, maintains aspect ratio */
+        .preview-section video {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 320px;
+            height: auto;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            display:block;
+        }
+
+        .config-section {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #e8f4f8;
+            border-radius: 4px;
+        }
+        .output-section {
+            padding: 10px;
+            background: #f0f8f0;
+            border-radius: 4px;
+        }
+        .config-controls, .output-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .config-row, .output-row, .status-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .config-row label, .output-row label {
+            min-width: 100px;
+            font-weight: bold;
+        }
+        .device-option.free {
+            font-weight: bold;
+            color: green;
+        }
+        .device-option.busy {
+            color: var(--muted);
+            font-style: italic;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            transition: background-color .25s ease;
+        }
+        .status-active { background: var(--red); }
+        .status-inactive { background: var(--green); }
+
+        /* Toggle button (single start/stop) */
+        .toggle-btn {
+            border: none;
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: transform .08s ease, opacity .12s ease;
+        }
+        .toggle-btn.start { background: var(--green); }
+        .toggle-btn.stop { background: var(--red); }
+        .toggle-btn:active { transform: scale(.98); }
+
+        .small-muted { color: #666; font-size: 0.9rem; }
+
+        .inline {
+            display:inline-flex;
+            gap:8px;
+            align-items:center;
+        }
+
+        /* responsive grid collapse on small screens */
+        @media (max-width: 900px) {
+            .workspaces-grid { grid-template-columns: 1fr; }
+        }
+        /* Style for locked controls */
+select:disabled, input:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* HLS toggle button colors */
+.toggle-btn.hls-start { background: #9c27b0; }
+.toggle-btn.hls-stop { background: #7b1fa2; }
+
+/* Status indicators for HLS */
+.hls-status {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 5px;
+}
+.hls-status.playing { background: #9c27b0; }
+.hls-status.stopped { background: #ccc; }
+
+/* Config section when locked */
+.config-section.locked {
+    background: #f5f5f5;
+    border-left: 4px solid #2196F3;
+}
+
+/* Output section when active */
+.output-section.active {
+    background: #f0f8f0;
+    border-left: 4px solid #4CAF50;
+}
+    </style>
+</head>
+<body>
+    <h1>Control Panel</h1>
+
+    <!-- Global Controls -->
+<div class="controls-row">
+    <button onclick="window.location.href='/logout';" class="logout">Logout</button>
+    <button id="restartAppBtn" class="restart">Restart App</button>
+    <span class="small-muted">Auto-refresh every second • Press F5 for full reload</span>
+</div>
+
+    <!-- Messages -->
+    <div id="message-area">
+        {% if message %}<p><strong>Message:</strong> {{ message }}</p>{% endif %}
+        {% if command %}<p><strong>Command:</strong> {{ command }}</p>{% endif %}
+    </div>
+
+    <!-- Four Independent Workspaces (kept structure) -->
+    <div class="workspaces-grid">
+        {% for i in range(4) %}
+        <div class="workspace-panel">
+            <h2>Channel {{ i+1 }}</h2>
+
+            <!-- Preview Window -->
+            <div class="preview-section">
+                <h3>Preview {{ i+1 }}</h3>
+                <video id="preview{{ i+1 }}" controls preload="metadata" playsinline>
+                    Your browser doesn't support HTML5 video.
+                </video>
+            </div>
+
+            <!-- Stream Configuration -->
+            <div class="config-section">
+                <h4>Stream Configuration</h4>
+                <div class="config-controls">
+                    <div class="config-row">
+                        <label>Stream Type:</label>
+                        <select name="input_type_{{ i }}" onchange="updatePreviewStream({{ i+1 }})">
+                            <option value="RTMP">RTMP</option>
+                            <option value="SRT">SRT</option>
+                        </select>
+                    </div>
+
+                    <div class="config-row">
+                        <label>Stream Key:</label>
+                        <input type="text" name="input_key_{{ i }}" placeholder="stream_key" value="preview{{ i+1 }}">
+                    </div>
+
+                    <div class="config-row">
+                        <label>Port Number:</label>
+                        <input type="text" name="port_number_{{ i }}" placeholder="1935" value="1935">
+                    </div>
+
+                    <div class="config-row">
+            <button onclick="toggleHLSPreview({{ i+1 }})" 
+            id="hls_toggle_{{ i }}"
+            class="toggle-btn start"
+            style="background: #9c27b0;">Start Preview</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- DeckLink Output Controls -->
+            <div class="output-section">
+                <h4>DeckLink Output</h4>
+                <div class="output-controls">
+                    <input type="hidden" name="channel_id_{{ i }}" value="{{ i+1 }}">
+                    <div class="output-row">
+                        <label>Device:</label>
+                        <select name="device_{{ i }}" class="device-select">
+                            <option value="">-- Select Device --</option>
+                            {% for device in devices %}
+                            <option value="{{ device }}"
+                                    data-state="{{ device_states.get(device, 'inactive') }}"
+                                    class="device-option {{ device_states.get(device, 'inactive') }}">
+                                {{ device }}
+                                {% if device_states.get(device, 'inactive') == 'active' %}
+                                (BUSY)
+                                {% else %}
+                                (FREE)
+                                {% endif %}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="output-row">
+                        <label>Format:</label>
+                        <select name="format_{{ i }}" class="format-select">
+                            {% for format in formats %}
+                            <option value="{{ format }}">{{ format }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="output-row">
+                        <!-- single toggle button replacing Start/Stop -->
+                        <button id="toggle_btn_{{ i }}" class="toggle-btn start">Start</button>
+                        <span class="inline small-muted" id="toggle_msg_{{ i }}">Ready</span>
+                    </div>
+
+                    <div class="status-row">
+                        <span class="status-indicator status-inactive" id="indicator_{{ i+1 }}"></span>
+                        <span class="status-text" id="status_{{ i+1 }}">Ready</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+    // HLS State Management
+    let hlsButtonStates = {1: 'stop', 2: 'stop', 3: 'stop', 4: 'stop'}; // 'start' or 'stop'
+    
+        // Function to sync ALL parameters from active streams
+  function syncChannelParametersFromBackend(activeStreams, channelAssignments, deviceStates) {
+    // For each channel that has an active assignment
+    for (const [channelId, device] of Object.entries(channelAssignments)) {
+        const channelIndex = parseInt(channelId) - 1;
+        const channelNum = parseInt(channelId);
+        
+        // Find the active stream config for this device
+        if (activeStreams[device] && activeStreams[device].config) {
+            const config = activeStreams[device].config;
+            
+            // Update format dropdown
+            const formatSelect = document.querySelector(`select[name="format_${channelIndex}"]`);
+            if (formatSelect && config.resolution_frame_rate) {
+                formatSelect.value = config.resolution_frame_rate;
+            }
+            
+            // Update stream configuration if available in config
+            const inputTypeSelect = document.querySelector(`select[name="input_type_${channelIndex}"]`);
+            const inputKeyInput = document.querySelector(`input[name="input_key_${channelIndex}"]`);
+            const portInput = document.querySelector(`input[name="port_number_${channelIndex}"]`);
+            
+            // Extract stream key and type from input_url if available
+            if (config.input_url) {
+                const url = config.input_url;
+                
+                // Parse RTMP URL: rtmp://202.84.34.70:1935/live/STREAM_KEY
+                if (url.includes('rtmp://')) {
+                    if (inputTypeSelect) inputTypeSelect.value = 'RTMP';
+                    // Extract stream key from RTMP URL
+                    const match = url.match(/\/live\/([^\/]+)/);
+                    if (match && inputKeyInput) {
+                        inputKeyInput.value = match[1];
+                    }
+                }
+                // Parse SRT URL: srt://27.131.14.34:1935/live/stream/STREAM_KEY
+                else if (url.includes('srt://')) {
+                    if (inputTypeSelect) inputTypeSelect.value = 'SRT';
+                    // Extract stream key from SRT URL
+                    const match = url.match(/\/stream\/([^\/]+)/);
+                    if (match && inputKeyInput) {
+                        inputKeyInput.value = match[1];
+                    }
+                }
+                
+                // Extract port number
+                const portMatch = url.match(/:(\d+)\//);
+                if (portMatch && portInput) {
+                    portInput.value = portMatch[1];
+                }
+            }
+        }
+    }
+}
+    // --- FIXED autoPollStates() function ---
+    async function autoPollStates() {
+    try {
+        // Get complete state including channel assignments
+        const resp = await fetch('/active_channel_configs');
+        const json = await resp.json();
+        const deviceStates = json.device_states || {};
+        const channelAssignments = json.channel_assignments || {};
+        const activeStreams = json.active_streams || {};
+
+        // Update device dropdown states WITHOUT recreating options
+        document.querySelectorAll('.device-select').forEach((select, idx) => {
+            const channelNum = idx + 1;
+            const currentSelection = select.value;
+            
+            // Update each existing option's display text and status
+            Array.from(select.options).forEach(option => {
+                if (option.value && option.value !== "") {  // Skip the "-- Select Device --" option
+                    const device = option.value;
+                    const state = deviceStates[device] || 'inactive';
+                    
+                    // Update option text
+                    option.textContent = `${device} ${state === 'active' ? '(BUSY)' : '(FREE)'}`;
+                    
+                    // Update classes and disabled state
+                    if (state === 'active') {
+                        option.classList.add('busy');
+                        option.classList.remove('free');
+                        option.disabled = true;  // Can't select busy devices
+                    } else {
+                        option.classList.remove('busy');
+                        option.classList.add('free');
+                        option.disabled = false;  // Can select free devices
+                    }
+                }
+            });
+            syncChannelParametersFromBackend(activeStreams, channelAssignments, deviceStates);
+
+// Update HLS button states from backend
+// In autoPollStates() function, find the HLS update section (around line 80-100):
+try {
+    if (json.hls_states) {
+        for (const [channelId, state] of Object.entries(json.hls_states)) {
+            const channelNum = parseInt(channelId);
+            if (state.playing) {
+                updateHLSButton(channelNum, 'start');
+                
+                // Check if HLS is NOT already playing in this browser
+                if (!hlsPlayers[channelNum] || hlsPlayers[channelNum].destroyed) {
+                    // Auto-start HLS playback in this browser
+                    console.log(`Auto-starting HLS for channel ${channelNum} in this browser`);
+                    autoStartHLSPreview(channelNum, state);
+                } else {
+                    // HLS is already playing, ensure video is playing
+                    const video = document.getElementById(`preview${channelNum}`);
+                    if (video && video.paused) {
+                        video.play().catch(() => {});
+                    }
+                }
+            } else {
+                updateHLSButton(channelNum, 'stop');
+            }
+        }
+    }
+} catch (hlsError) {
+    console.warn('Could not update HLS states:', hlsError);
+}
+            
+            // Check if this channel has an active assignment
+            const assignedDevice = channelAssignments[channelNum.toString()];
+            if (assignedDevice && deviceStates[assignedDevice] === 'active') {
+                // This channel has an active stream
+                // Make sure the device exists in dropdown
+                let deviceExists = false;
+                Array.from(select.options).forEach(opt => {
+                    if (opt.value === assignedDevice) {
+                        deviceExists = true;
+                    }
+                });
+                
+                if (deviceExists) {
+                    select.value = assignedDevice;
+                    select.disabled = true;  // Lock device selection
+                }
+                
+                // Get the toggle button and update it
+                const toggleBtn = document.getElementById(`toggle_btn_${idx}`);
+                const toggleMsg = document.getElementById(`toggle_msg_${idx}`);
+                const indicator = document.getElementById(`indicator_${channelNum}`);
+                
+                if (toggleBtn) {
+                    toggleBtn.classList.remove('start');
+                    toggleBtn.classList.add('stop');
+                    toggleBtn.textContent = 'Stop';
+                    toggleBtn.disabled = false;
+                }
+                if (toggleMsg) toggleMsg.textContent = 'Streaming';
+                if (indicator) indicator.className = 'status-indicator status-active';
+                
+                // Lock channel controls
+                lockChannelControls(idx, true);
+} else {
+    // No active stream for this channel OR stream died
+    
+    // First, check if this channel HAD an assignment but the device is now inactive
+    const hadAssignment = channelAssignments[channelNum.toString()];
+    const deviceIsInactive = hadAssignment && deviceStates[hadAssignment] === 'inactive';
+    
+    if (deviceIsInactive) {
+        // Stream died - unlock the channel but keep the device selected
+        console.log(`Channel ${channelNum}: Stream died, unlocking controls`);
+        select.disabled = false;
+        lockChannelControls(idx, false);
+        
+        // Reset toggle button to "Start" (but keep device selected)
+        const toggleBtn = document.getElementById(`toggle_btn_${idx}`);
+        const toggleMsg = document.getElementById(`toggle_msg_${idx}`);
+        const indicator = document.getElementById(`indicator_${channelNum}`);
+        
+        if (toggleBtn) {
+            toggleBtn.classList.remove('stop');
+            toggleBtn.classList.add('start');
+            toggleBtn.textContent = 'Start';
+            toggleBtn.disabled = false;
+        }
+        if (toggleMsg) toggleMsg.textContent = 'Stream ended - ready to restart';
+        if (indicator) indicator.className = 'status-indicator status-inactive';
+        
+    } else if (currentSelection && deviceStates[currentSelection] === 'active') {
+        // Device is busy (used by another channel) - clear selection
+        select.value = '';
+        lockChannelControls(idx, false);
+    } else {
+        // Normal case: no active stream, unlock controls
+        select.disabled = false;
+        lockChannelControls(idx, false);
+    }
+}
+        });
+
+        // Update toggle buttons for channels without active assignments
+        document.querySelectorAll('.device-select').forEach((select, idx) => {
+            const channelNum = idx + 1;
+            const assignedDevice = channelAssignments[channelNum.toString()];
+            
+            // Only update if this channel doesn't have an active assignment
+            if (!assignedDevice || deviceStates[assignedDevice] !== 'active') {
+                const selectedDevice = select.value;
+                const toggleBtn = document.getElementById(`toggle_btn_${idx}`);
+                const toggleMsg = document.getElementById(`toggle_msg_${idx}`);
+                const indicator = document.getElementById(`indicator_${channelNum}`);
+                
+                if (!toggleBtn) return;
+                
+                if (!selectedDevice) {
+                    // No device selected
+                    toggleBtn.classList.remove('stop');
+                    toggleBtn.classList.add('start');
+                    toggleBtn.textContent = 'Start';
+                    toggleBtn.disabled = false;
+                    if (toggleMsg) toggleMsg.textContent = 'Select device';
+                    if (indicator) indicator.className = 'status-indicator status-inactive';
+                    lockChannelControls(idx, false);
+                } else {
+                    const state = deviceStates[selectedDevice] || 'inactive';
+                    if (state === 'active') {
+                        // Device is busy (but not assigned to this channel)
+                        toggleBtn.classList.remove('start');
+                        toggleBtn.classList.add('stop');
+                        toggleBtn.textContent = 'Stop';
+                        toggleBtn.disabled = true;  // Can't control other channel's stream
+                        if (toggleMsg) toggleMsg.textContent = 'Device in use by another channel';
+                        if (indicator) indicator.className = 'status-indicator status-active';
+                        lockChannelControls(idx, true);
+                    } else {
+                        // Device is free
+                        toggleBtn.classList.remove('stop');
+                        toggleBtn.classList.add('start');
+                        toggleBtn.textContent = 'Start';
+                        toggleBtn.disabled = false;
+                        if (toggleMsg) toggleMsg.textContent = 'Ready';
+                        if (indicator) indicator.className = 'status-indicator status-inactive';
+                        lockChannelControls(idx, false);
+                    }
+                }
+            }
+        });
+        
+    } catch (err) {
+        console.error('autoPollStates error:', err);
+    }
+}
+
+// Enhanced function to lock/unlock ALL channel controls - MODIFIED
+function lockChannelControls(channelIndex, lock, config = null) {
+    const channelNum = channelIndex + 1;
+    
+    // DeckLink Output Controls
+    const deviceSelect = document.querySelector(`select[name="device_${channelIndex}"]`);
+    const formatSelect = document.querySelector(`select[name="format_${channelIndex}"]`);
+    const toggleBtn = document.getElementById(`toggle_btn_${channelIndex}`);
+    
+    // Stream Configuration Controls (Preview section)
+    const inputTypeSelect = document.querySelector(`select[name="input_type_${channelIndex}"]`);
+    const inputKeyInput = document.querySelector(`input[name="input_key_${channelIndex}"]`);
+    const portInput = document.querySelector(`input[name="port_number_${channelIndex}"]`);
+    
+    // HLS Preview Button - KEEP INDEPENDENT, DON'T LOCK
+    const hlsToggleBtn = document.getElementById(`hls_toggle_${channelIndex}`);
+    
+    if (lock) {
+        // LOCK only DeckLink-related controls
+        if (deviceSelect) {
+            deviceSelect.disabled = true;
+            deviceSelect.style.backgroundColor = '#f0f0f0';
+            deviceSelect.style.color = '#666';
+        }
+        if (formatSelect) {
+            formatSelect.disabled = true;
+            formatSelect.style.backgroundColor = '#f0f0f0';
+            formatSelect.style.color = '#666';
+        }
+        if (toggleBtn) toggleBtn.disabled = false; // Keep stop button enabled
+        
+        // Lock preview configuration too (so others can see what's being used)
+        if (inputTypeSelect) {
+            inputTypeSelect.disabled = true;
+            inputTypeSelect.style.backgroundColor = '#f0f0f0';
+        }
+        if (inputKeyInput) {
+            inputKeyInput.disabled = true;
+            inputKeyInput.style.backgroundColor = '#f0f0f0';
+        }
+        if (portInput) {
+            portInput.disabled = true;
+            portInput.style.backgroundColor = '#f0f0f0';
+        }
+        
+        // DO NOT lock HLS button - it's independent!
+        if (hlsToggleBtn) {
+            hlsToggleBtn.disabled = false; // Keep HLS button enabled
+            hlsToggleBtn.style.opacity = '1';
+        }
+        
+    } else {
+        // UNLOCK all DeckLink controls
+        if (deviceSelect) {
+            deviceSelect.disabled = false;
+            deviceSelect.style.backgroundColor = '';
+            deviceSelect.style.color = '';
+        }
+        if (formatSelect) {
+            formatSelect.disabled = false;
+            formatSelect.style.backgroundColor = '';
+            formatSelect.style.color = '';
+        }
+        if (toggleBtn) toggleBtn.disabled = false;
+        
+        // Unlock preview configuration
+        if (inputTypeSelect) {
+            inputTypeSelect.disabled = false;
+            inputTypeSelect.style.backgroundColor = '';
+        }
+        if (inputKeyInput) {
+            inputKeyInput.disabled = false;
+            inputKeyInput.style.backgroundColor = '';
+        }
+        if (portInput) {
+            portInput.disabled = false;
+            portInput.style.backgroundColor = '';
+        }
+        
+        // HLS button should already be enabled
+        if (hlsToggleBtn) {
+            hlsToggleBtn.disabled = false;
+            hlsToggleBtn.style.opacity = '1';
+        }
+    }
+}
+
+        // Operation locks to prevent simultaneous operations
+        const operationLocks = { 1: false, 2: false, 3: false, 4: false };
+
+        function isOperationLocked(channel) { return operationLocks[channel]; }
+        function setOperationLock(channel, locked) {
+            operationLocks[channel] = locked;
+            const toggleBtn = document.getElementById(`toggle_btn_${channel-1}`);
+            if (toggleBtn) toggleBtn.disabled = locked;
+        }
+
+        // HLS players (kept)
+        const hlsPlayers = {};
+
+        // Helper: fetch JSON with timeout
+        async function fetchJSON(url, opts = {}) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 8000);
+            try {
+                const res = await fetch(url, {...opts, signal: controller.signal});
+                clearTimeout(id);
+                return await res.json();
+            } catch (e) {
+                clearTimeout(id);
+                throw e;
+            }
+        }
+
+        // Refresh button hookup
+        document.getElementById('restartAppBtn').addEventListener('click', async () => {
+            if (!confirm('Restart the Flask app? This will briefly disconnect the UI.')) return;
+            try {
+                await fetch('/restart', { method: 'POST' });
+                alert('Restart triggered — you will be redirected to login when the server restarts.');
+                window.location.href = '/streaming_login';
+            } catch (e) {
+                console.error('Restart failed:', e);
+                alert('Restart request failed: ' + e.message);
+            }
+        });
+
+        // Load preview streams mapping (keeps existing behavior)
+        async function loadPreviewStreams() {
+            try {
+                const streams = await fetchJSON('/preview_streams');
+                return streams || {};
+            } catch (e) {
+                console.warn('Could not load preview streams:', e);
+                return {};
+            }
+        }
+
+        // Initialize preview inputs (keeps existing)
+        async function initializePreviews() {
+            const previewStreams = await loadPreviewStreams();
+            for (let i = 1; i <= 4; i++) {
+                const inputKey = document.querySelector(`input[name="input_key_${i-1}"]`);
+                const portNumber = document.querySelector(`input[name="port_number_${i-1}"]`);
+                if (inputKey) {
+                    const streamKey = `preview${i}`;
+                    if (previewStreams[streamKey]) {
+                        inputKey.value = streamKey;
+                        updateStatus(i, `Using preset: ${streamKey}`);
+                    } else {
+                        inputKey.placeholder = 'Enter stream key';
+                        updateStatus(i, 'Custom stream - enter stream key');
+                    }
+                }
+                if (portNumber) portNumber.value = '1935';
+            }
+        }
+
+        // MODIFIED startPreview function with HLS button state
+async function startPreview(windowNumber) {
+    if (isOperationLocked(windowNumber)) { 
+        updateStatus(windowNumber, 'Busy...'); 
+        return; 
+    }
+    
+    const inputType = document.querySelector(`select[name="input_type_${windowNumber-1}"]`).value;
+    const inputKey = document.querySelector(`input[name="input_key_${windowNumber-1}"]`).value;
+    const portNumber = document.querySelector(`input[name="port_number_${windowNumber-1}"]`).value || '1935';
+    
+    if (!inputKey) { 
+        alert('Enter stream key'); 
+        return; 
+    }
+
+    const video = document.getElementById(`preview${windowNumber}`);
+    
+    // Stop existing HLS if any
+    if (hlsPlayers[windowNumber]) { 
+        hlsPlayers[windowNumber].destroy(); 
+        delete hlsPlayers[windowNumber]; 
+    }
+    
+    setOperationLock(windowNumber, true);
+    updateHLSButton(windowNumber, 'start'); // Update button to show "Stop"
+    updateStatus(windowNumber, 'Starting HLS conversion...');
+
+    try {
+        const res = await fetch('/start_preview', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({
+                channel_id: windowNumber.toString(), 
+                input_type: inputType, 
+                input_key: inputKey, 
+                port: portNumber
+            })
+        });
+        
+        const data = await res.json();
+        if (data.success) {
+            await new Promise(r => setTimeout(r, 1500)); // Slightly longer wait
+            
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90
+                });
+                
+                hlsPlayers[windowNumber] = hls;
+                hls.loadSource(data.hls_url);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.play().catch(e => {
+                        console.log('Auto-play prevented:', e);
+                        updateStatus(windowNumber, 'Click play to start');
+                    });
+                    updateStatus(windowNumber, 'Preview playing');
+                });
+                
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        console.error('HLS fatal error', data);
+                        updateHLSButton(windowNumber, 'stop');
+                        updateStatus(windowNumber, 'HLS error - restart needed');
+                        
+                        // Try to restart after error
+                        setTimeout(() => {
+                            if (hlsButtonStates[windowNumber] === 'start') {
+                                startPreview(windowNumber).catch(() => {});
+                            }
+                        }, 3000);
+                    }
+                });
+                
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = data.hls_url;
+                video.addEventListener('loadedmetadata', () => {
+                    video.play().catch(() => {});
+                    updateStatus(windowNumber, 'Preview loaded');
+                });
+                updateStatus(windowNumber, 'Native HLS playback');
+            } else {
+                updateHLSButton(windowNumber, 'stop');
+                updateStatus(windowNumber, 'HLS not supported in this browser');
+            }
+        } else {
+            updateHLSButton(windowNumber, 'stop');
+            updateStatus(windowNumber, 'Preview error: ' + (data.error || 'unknown'));
+        }
+    } catch (e) {
+        console.error('startPreview error', e);
+        updateHLSButton(windowNumber, 'stop');
+        updateStatus(windowNumber, 'Preview start error: ' + e.message);
+    } finally {
+        setOperationLock(windowNumber, false);
+    }
+}
+
+// MODIFIED stopPreview function with HLS button state
+async function stopPreview(windowNumber) {
+    hlsButtonStates[windowNumber] = 'stop';
+    const video = document.getElementById(`preview${windowNumber}`);
+    
+    if (hlsPlayers[windowNumber]) { 
+        hlsPlayers[windowNumber].destroy(); 
+        delete hlsPlayers[windowNumber]; 
+    }
+    
+    updateHLSButton(windowNumber, 'stop'); // Update button to show "Start"
+    updateStatus(windowNumber, 'Stopping preview...');
+    
+    try {
+        await fetch(`/stop_preview/${windowNumber}`, { method: 'POST' });
+    } catch (e) { 
+        console.warn('stopPreview failed', e); 
+    }
+    
+    video.pause();
+    video.src = '';
+    video.load();
+    
+    updateStatus(windowNumber, 'Preview stopped');
+}
+
+// Function to auto-start HLS preview when state syncs
+async function autoStartHLSPreview(channelNum, hlsState) {
+    if (isOperationLocked(channelNum) || hlsPlayers[channelNum]) {
+        return; // Don't start if already playing or locked
+    }
+    
+    const channelIndex = channelNum - 1;
+    const video = document.getElementById(`preview${channelNum}`);
+    
+    if (!video || hlsPlayers[channelNum]) {
+        return;
+    }
+    
+    console.log(`Auto-starting HLS preview for channel ${channelNum}`);
+    updateStatus(channelNum, 'Auto-starting preview...');
+    
+    try {
+        // Set the input values from the synced state
+        const inputTypeSelect = document.querySelector(`select[name="input_type_${channelIndex}"]`);
+        const inputKeyInput = document.querySelector(`input[name="input_key_${channelIndex}"]`);
+        const portInput = document.querySelector(`input[name="port_number_${channelIndex}"]`);
+        
+        if (inputTypeSelect && hlsState.input_type) inputTypeSelect.value = hlsState.input_type;
+        if (inputKeyInput && hlsState.input_key) inputKeyInput.value = hlsState.input_key;
+        if (portInput && hlsState.port) portInput.value = hlsState.port;
+        
+        // Get HLS URL from backend
+        const statusResp = await fetch(`/hls_status/${channelNum}`);
+        const status = await statusResp.json();
+        
+        if (status.status === 'running' && status.playlist_exists) {
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90
+                });
+                
+                hlsPlayers[channelNum] = hls;
+                hls.loadSource(`/hls/${channelNum}/stream.m3u8`);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.play().catch(e => {
+                        console.log('Auto-play prevented:', e);
+                        updateStatus(channelNum, 'Click play to start');
+                    });
+                    updateStatus(channelNum, 'Auto-started preview');
+                });
+                
+                hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        console.error('HLS fatal error in auto-start', data);
+                        if (hlsPlayers[channelNum]) {
+                            hlsPlayers[channelNum].destroy();
+                            delete hlsPlayers[channelNum];
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = `/hls/${channelNum}/stream.m3u8`;
+                video.addEventListener('loadedmetadata', () => {
+                    video.play().catch(() => {});
+                    updateStatus(channelNum, 'Auto-started (native)');
+                });
+            }
+        } else {
+            console.warn(`HLS not ready for channel ${channelNum}, status:`, status);
+            // Try again in 3 seconds
+            setTimeout(() => {
+                if (json.hls_states && json.hls_states[channelNum] && json.hls_states[channelNum].playing) {
+                    autoStartHLSPreview(channelNum, hlsState);
+                }
+            }, 3000);
+        }
+    } catch (e) {
+        console.error(`Failed to auto-start HLS for channel ${channelNum}:`, e);
+        updateStatus(channelNum, 'Auto-start failed');
+    }
+}
+
+        function updatePreviewStream(windowNumber) {
+            const inputType = document.querySelector(`select[name="input_type_${windowNumber-1}"]`).value;
+            const inputKey = document.querySelector(`input[name="input_key_${windowNumber-1}"]`).value;
+            updateStatus(windowNumber, `Configured: ${inputType} - ${inputKey}`);
+        }
+
+        function updateStatus(windowNumber, message) {
+            const statusElement = document.getElementById(`status_${windowNumber}`);
+            const msg = document.getElementById(`toggle_msg_${windowNumber-1}`);
+            if (statusElement) statusElement.textContent = message;
+            if (msg) msg.textContent = message;
+            console.log(`Channel ${windowNumber}: ${message}`);
+        }
+        
+// Update HLS button appearance
+function updateHLSButton(channel, state) {
+    const hlsBtn = document.getElementById(`hls_toggle_${channel-1}`);
+    if (!hlsBtn) return;
+    
+    hlsButtonStates[channel] = state;
+    
+    if (state === 'stop') {
+        // Show "Start Preview"
+        hlsBtn.textContent = 'Start Preview';
+        hlsBtn.classList.remove('stop');
+        hlsBtn.classList.add('start');
+        hlsBtn.style.backgroundColor = '#9c27b0'; // Purple for start
+    } else {
+        // Show "Stop Preview"
+        hlsBtn.textContent = 'Stop Preview';
+        hlsBtn.classList.remove('start');
+        hlsBtn.classList.add('stop');
+        hlsBtn.style.backgroundColor = '#7b1fa2'; // Darker purple for stop
+    }
+}
+
+// Unified HLS toggle function
+async function toggleHLSPreview(channel) {
+    if (isOperationLocked(channel)) { 
+        updateStatus(channel, 'Busy...'); 
+        return; 
+    }
+    
+    if (hlsButtonStates[channel] === 'stop') {
+        await startPreview(channel);
+    } else {
+        await stopPreview(channel);
+    }
+}
+
+// Function to restore HLS preview on page load
+async function restoreHLSPreviews() {
+    try {
+        const resp = await fetch('/hls_states');
+        const hlsStates = await resp.json();
+        
+        for (const [channelId, state] of Object.entries(hlsStates)) {
+            if (state.playing) {
+                const channelNum = parseInt(channelId);
+                
+                // Restore input values
+                const inputTypeSelect = document.querySelector(`select[name="input_type_${channelNum-1}"]`);
+                const inputKeyInput = document.querySelector(`input[name="input_key_${channelNum-1}"]`);
+                const portInput = document.querySelector(`input[name="port_number_${channelNum-1}"]`);
+                
+                if (inputTypeSelect) inputTypeSelect.value = state.input_type;
+                if (inputKeyInput) inputKeyInput.value = state.input_key;
+                if (portInput) portInput.value = state.port;
+                
+                // Update button to show "Stop"
+                updateHLSButton(channelNum, 'start');
+                
+                // Auto-start HLS playback after a delay
+                setTimeout(() => {
+                    startPreview(channelNum).catch(e => console.error('Auto-start HLS failed:', e));
+                }, 1500);
+            }
+        }
+    } catch (e) {
+        console.warn('Could not restore HLS states:', e);
+    }
+}
+
+// ===== IMPROVED refreshDevices function =====
+async function refreshDevices() {
+    try {
+        // First, get fresh device list from backend
+        const namesResp = await fetch('/get_device_names');
+        const devices = await namesResp.json();
+        
+        if (!devices || devices.length === 0) {
+            console.warn('No devices returned from backend');
+            return;
+        }
+        
+        // Update each dropdown with fresh device list
+        document.querySelectorAll('.device-select').forEach((select, idx) => {
+            const currentValue = select.value;
+            
+            // Save the first option
+            const firstOption = select.options[0];
+            
+            // Clear all options
+            select.innerHTML = '';
+            
+            // Add back the first option
+            select.appendChild(firstOption);
+            
+            // Add fresh device list
+            devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device;
+                option.textContent = device + ' (FREE)';  // Default state
+                option.className = 'device-option free';
+                select.appendChild(option);
+            });
+            
+            // Restore previous selection if still available
+            if (currentValue && devices.includes(currentValue)) {
+                select.value = currentValue;
+            } else if (currentValue === '' && select.options.length > 0) {
+                // Keep "Select Device" option if nothing was selected
+                select.value = '';
+            }
+        });
+        
+        console.log('Device refresh complete, found', devices.length, 'devices');
+        
+        // Now update states
+        await autoPollStates();
+        
+    } catch (e) {
+        console.error('refreshDevices failed:', e);
+        // Fallback: try to at least update states
+        try {
+            await autoPollStates();
+        } catch (e2) {
+            console.error('AutoPoll also failed:', e2);
+        }
+    }
+}
+
+// ===== UPDATED toggleStream function with ALL parameters =====
+async function toggleStream(channelIndex) {
+    const channel = channelIndex + 1;
+    if (isOperationLocked(channel)) {
+        updateStatus(channel, 'Operation in progress...');
+        return;
+    }
+
+    const select = document.querySelector(`select[name="device_${channelIndex}"]`);
+    if (!select || !select.value) {
+        alert('Please select a device first');
+        return;
+    }
+    
+    const device = select.value;
+    const format = document.querySelector(`select[name="format_${channelIndex}"]`).value;
+    const inputKey = document.querySelector(`input[name="input_key_${channelIndex}"]`).value;
+    const portNumber = document.querySelector(`input[name="port_number_${channelIndex}"]`).value || '1935';
+    const inputType = document.querySelector(`select[name="input_type_${channelIndex}"]`).value;
+
+    // Determine action
+    const btn = document.getElementById(`toggle_btn_${channelIndex}`);
+    const isStop = btn && btn.classList.contains('stop');
+
+    // Set lock
+    setOperationLock(channel, true);
+    btn.disabled = true;
+    const msgEl = document.getElementById(`toggle_msg_${channelIndex}`);
+    
+    try {
+        const fd = new FormData();
+        fd.append('action', isStop ? 'stop' : 'start');
+        fd.append('device', device);
+        fd.append('channel_id', channel.toString());
+        
+        if (!isStop) {
+            // For start, include ALL parameters for syncing
+            fd.append('resolution_frame_rate', format);
+            fd.append('input_key', inputKey);
+            fd.append('port_number', portNumber);
+            fd.append('input_type', inputType);
+        }
+
+        await fetch('/streaming', { method: 'POST', body: fd });
+        
+        // Wait a moment for backend to update
+        await new Promise(r => setTimeout(r, 800));
+        
+        // Force immediate UI update
+        await autoPollStates();
+        
+    } catch (e) {
+        console.error(isStop ? 'stop error' : 'start error', e);
+        if (msgEl) msgEl.textContent = isStop ? 'Stop failed' : 'Start failed';
+    } finally {
+        setOperationLock(channel, false);
+    }
+}
+        // Attach toggle button handlers after DOM ready
+        function attachToggleHandlers() {
+            document.querySelectorAll('[id^="toggle_btn_"]').forEach(btn => {
+                // id format toggle_btn_<index>
+                const parts = btn.id.split('_');
+                const idx = parseInt(parts[2], 10);
+                btn.addEventListener('click', () => toggleStream(idx));
+            });
+        }
+
+        // When a device select changes, update the related toggle & indicator
+        document.addEventListener('change', (e) => {
+            if (!e.target) return;
+            if (e.target.matches('.device-select')) {
+                // find index
+                const selects = Array.from(document.querySelectorAll('.device-select'));
+                const idx = selects.indexOf(e.target);
+                if (idx === -1) return;
+                // Refresh UI for that row
+                refreshDevices(); // simple approach: refresh whole UI
+            }
+        });
+
+// --- FIXED DOMContentLoaded handler ---
+document.addEventListener('DOMContentLoaded', async () => {
+    attachToggleHandlers();
+    
+    // Initialize previews
+    await initializePreviews();
+    
+    // Load devices and states
+    await refreshDevices();
+    
+    // Restore DeckLink active streams
+    try {
+        const resp = await fetch('/active_channel_configs');
+        const data = await resp.json();
+        const channelAssignments = data.channel_assignments || {};
+        
+        for (const [channelId, device] of Object.entries(channelAssignments)) {
+            const channelIndex = parseInt(channelId) - 1;
+            const select = document.querySelector(`select[name="device_${channelIndex}"]`);
+            if (select && select.querySelector(`option[value="${device}"]`)) {
+                select.value = device;
+                
+                // Also restore format if available in config
+                const formatSelect = document.querySelector(`select[name="format_${channelIndex}"]`);
+                if (data.active_streams && data.active_streams[device] && 
+                    data.active_streams[device].config) {
+                    const config = data.active_streams[device].config;
+                    if (config.resolution_frame_rate && formatSelect) {
+                        formatSelect.value = config.resolution_frame_rate;
+                    }
+                }
+                
+                lockChannelControls(channelIndex, true);
+            }
+        }
+        
+        // Restore HLS previews
+        if (data.hls_states) {
+            for (const [channelId, state] of Object.entries(data.hls_states)) {
+                if (state.playing) {
+                    const channelNum = parseInt(channelId);
+                    updateHLSButton(channelNum, 'start');
+                    // HLS will auto-restart via polling
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('Could not restore states:', e);
+    }
+    
+    // Restore HLS previews from saved state
+setTimeout(() => {
+    restoreHLSPreviews().catch(e => console.warn('HLS restore failed:', e));
+}, 2000); // Wait 2 seconds for everything else to load first
+    
+    // Start continuous polling
+    setInterval(autoPollStates, 1000);
+});
+    </script>
+</body>
+</html>
