@@ -104,7 +104,8 @@ PREVIEW_STREAMS = {
     }
 }
 
-FFMPEG_PATH = '/home/rf/bin/ffmpeg'
+#FFMPEG_PATH = '/home/rf/bin/ffmpeg'
+FFMPEG_PATH = '/opt/ffmpeg/bin/ffmpeg'
 
 PRELOADED_FORMATS = [
     "ntsc: 720x486 at 30000/1001 fps (interlaced, lower field first)",
@@ -144,7 +145,8 @@ def get_audio_sample_rate(input_url):
     """
     try:
         # Build ffprobe command
-        ffprobe_path = '/home/rf/bin/ffprobe'  # Assuming ffprobe is in same directory as ffmpeg
+        #ffprobe_path = '/home/rf/bin/ffprobe'  # Assuming ffprobe is in same directory as ffmpeg
+        ffprobe_path = '/opt/ffmpeg/bin/ffprobe'
         
         cmd = [
             ffprobe_path,
